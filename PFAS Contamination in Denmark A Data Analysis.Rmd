@@ -1,0 +1,192 @@
+---
+title: "PFAS Contamination in Denmark: A Data Analysis"
+output: html_document
+date: "Last update: `r Sys.Date()` "
+---
+
+# Some context for the dataset
+
+In early February 2023, the European Chemicals Agency ECHA published a ban proposal on all PFAS – or per- and polyfluoroalkyl substances. “The Forever Pollution Project” can now reveal that there is way more contamination all over Europe than has been publicly known. The journalists gathered 100 datasets and filed dozens of FOIA requests to build a first-of-its-kind map of PFAS contamination in Europe.
+
+The project shows that there are 20 manufacturing facilities and more than 2.300 sites in Europe that can be considered PFAS hotspots – places where contamination reaches levels considered to be hazardous to the health of people exposed to them. The problem: It’s extremely expensive to get rid of these chemicals, once they have found their way into the environment. The cost of remediation will likely reach the tens of billions of Euros. In several places, the authorities have already given up and decided to keep the toxic chemicals in the ground, because it’s not possible to clean them up.
+
+Source for context: <https://www.journalismfund.eu/forever-pollution-project>
+
+Data was downloaded by from <https://foreverpollution.eu/> as a *more detailed dataset* from:
+<https://assets-decodeurs.lemonde.fr/decodeurs/medias/foreverpollution/expert_dataset.csv>
+
+# Meta data 
+
+Details about the methodology to obtain and integrate the data is available at:
+<https://assets-decodeurs.lemonde.fr/decodeurs/medias/foreverpollution/Methodology___The_Map_of_Forever_Pollution_2023.02.23.pdf>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,       
+  warning = FALSE,    
+  message = FALSE     
+)
+```
+
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+```{r, message = FALSE}
+pfas_df <- read_csv("pfas.csv")
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+pfas_df %>%
+  select(1:7, 19:22) %>%
+  slice(34000) %>%
+  t() %>%
+  knitr::kable()
+
+names(pfas_df)
+```
+
+
+# A first coarse summary 
+
+```{r, warning = FALSE, message = FALSE}
+pfas_df %>%
+  filter(country == "Denmark") %>%
+  group_by(category) %>%
+  count() %>%
+  knitr::kable()
+```
+
+# An overview of the amount of total PFAS pollution 
+
+```{r, warning = FALSE, message = FALSE}
+pfas_df %>% 
+  filter(country %in% c("Denmark", "Germany", "Netherlands"), category == "Known") %>%
+  group_by(country) %>%
+  summarise(total_pfas_sum = sum(pfas_sum, na.rm = TRUE)) %>%
+  ggplot(aes(x=country, y=total_pfas_sum, fill = country)) +
+  geom_bar(stat = "identity") + 
+  labs(title = "Total PFAS Pollution in Known Contamination Sites", x = "Country", y="Total PFAS Sum") + theme_minimal()
+```
+
+# Proportion/ amount of PFAS by country
+
+```{r, warning = FALSE, message = FALSE}
+pfas_df %>%
+  filter(category == "Known") %>%
+  group_by(country) %>%
+  summarise(n_sites=n(),
+            n_above_1000 = sum(pfas_sum > 1000, na.rm = TRUE),
+            prop_above_1000 = n_above_1000/n_sites) %>%
+  arrange(desc(prop_above_1000)) %>%
+  slice(1:10) %>%
+  knitr::kable(
+    caption = "Top 10 Countries by Proportion of Sites with PFAS Sum > 1000", 
+    digits = 2)
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+colnames(pfas_df)
+```
+```{r, warning = FALSE, message = FALSE}
+tidy_pfas_df <- pfas_df %>%
+  pivot_longer(cols = c(pfos, pfoa, pfna, pfbs, pfhxa, pfhxs),
+               names_to = "chemical",
+               values_to = "contamination_level")
+
+head(tidy_pfas_df)
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+annual_contamination <- tidy_pfas_df %>%
+  group_by(year, chemical) %>%
+  summarise(total_contamination = sum(contamination_level, na.rm = TRUE))
+
+
+ggplot(annual_contamination, aes(x = year, y = total_contamination, fill = chemical)) + 
+  geom_bar(stat = "identity", position = "stack") + 
+  scale_x_continuous(limits = c(2010, NA)) +
+  labs(title = "Total Contamination Levels of Different PFAS Chemicals by Year",
+       x = "Year",
+       y = "Total Contamination Level") +
+  theme_minimal()
+```
+
+# Making a data subset "pfas_dk" containing only observations from Denmark 
+
+```{r, warning = FALSE, message = FALSE}
+pfas_dk <- pfas_df %>%
+  filter(country == "Denmark")
+
+nrow(pfas_dk)
+```
+
+```{r, message = FALSE}
+library(maps)
+library(mapproj)
+DKmap <- map_data("world") %>% filter(region=="Denmark")
+data_dk_cities <- world.cities %>% filter(country.etc=="Denmark")
+head(data_dk_cities)
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+ggplot() +
+  geom_polygon(data = DKmap, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  theme_void() + 
+  coord_map()
+```
+
+# Using the ggplot() package to add cities from data_dk_cities on the map as points.
+
+```{r, warning = FALSE, message = FALSE}
+ggplot() +
+  geom_polygon(data = DKmap, aes(x=long, y=lat, group = group), fill="Grey", aplha=0.3) +
+  theme_void() +
+  coord_map() + 
+  geom_point(data_dk_cities, mapping = aes(x=long, y=lat), size=0.4)
+```
+
+# Plotting only the 10 biggest locations in Denmark from the city list. 
+
+```{r, warning = FALSE, message = FALSE}
+data_dk_cities_10_biggest <- data_dk_cities %>% 
+  arrange(desc(pop)) %>% 
+  slice(1:10)
+
+ggplot() +
+  geom_polygon(data = DKmap, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  theme_void() + 
+  coord_map() + 
+  geom_point(data_dk_cities_10_biggest, mapping=aes(x=long, y=lat, size=pop), color="red", aplha=0.7) + 
+  geom_text(data = data_dk_cities_10_biggest, aes(x = long, y = lat, label = name), 
+            vjust = 1.5, hjust = 0.5, size = 3, color = "black")
+```
+
+# Map of Denmark with cities
+
+# Plotting all sites that exceed a given total pfas contamination level by using `pfas_sum >10` as threshold to be included..
+
+```{r, warning = FALSE, message = FALSE}
+pfas_dk_over_10 <- pfas_dk %>% 
+  filter(pfas_sum >= 10)
+
+ggplot() +
+  geom_polygon(data = DKmap, mapping = aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  theme_void() + 
+  coord_map() +
+  geom_point(pfas_dk_over_10, mapping = aes(x = lon, y = lat, color = pfas_sum), size = 1, alpha = 0.8) +
+  #scaling colors with vidiris
+  scale_color_viridis_c(direction = -1, trans = "log", name = "Contamination Level", option = "B")
+```
+
+# Overview of the environment this code code ran in
+
+```{r, warning = FALSE, message = FALSE}
+sessionInfo()
+```
+
